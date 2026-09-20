@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terrain — NER Logistics Intelligence (Prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --bg: #F7F8FA;
+    --panel: #FFFFFF;
+    --panel-2: #F0F2F5;
+    --line: #E2E5EA;
+    --text: #1A202C;
+    --text-dim: #6B7280;
+    --open: #16A34A;
+    --risk: #D97706;
+    --blocked: #DC2626;
+    --accent: #2563EB;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'IBM Plex Sans', sans-serif;
+    font-size:14px;
+    line-height:1.5;
+    overflow-x:hidden;
+  }
+  h1,h2,h3,.num,.brand{font-family:'IBM Plex Sans', sans-serif; font-weight:700; letter-spacing:-0.01em;}
+  .app{ display:grid; grid-template-columns:64px 1fr; min-height:100vh; }
+
+  /* ---- Nav rail ---- */
+  .rail{
+    background:var(--panel);
+    border-right:1px solid var(--line);
+    display:flex; flex-direction:column; align-items:center;
+    padding:18px 0; gap:6px;
+  }
+  .rail .mark{
+    width:34px;height:34px;border-radius:8px;
+    background:var(--accent); color:#FFFFFF; font-weight:700;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'IBM Plex Sans',sans-serif; font-weight:700; font-size:15px;
+    margin-bottom:22px;
+  }
+  .rail button{
+    width:44px;height:44px; border:none; background:transparent; color:var(--text-dim);
+    border-radius:8px; cursor:pointer; font-size:18px;
+    display:flex;align-items:center;justify-content:center;
+    transition:background .15s, color .15s;
+  }
+  .rail button:hover{ background:var(--panel-2); color:var(--text); }
+  .rail button.active{ background:var(--panel-2); color:var(--accent); }
+  .rail .spacer{flex:1;}
+  .rail .tag{
+    writing-mode:vertical-rl; font-size:10px; letter-spacing:.08em; color:var(--text-dim);
+    margin-bottom:14px;
+  }
+
+  /* ---- Top bar ---- */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 26px; border-bottom:1px solid var(--line);
+  }
+  .topbar .title{ font-size:19px; font-weight:600; }
+  .topbar .title span{ color:var(--text-dim); font-weight:400; font-size:13px; margin-left:10px; font-family:'IBM Plex Sans',sans-serif;}
+  .pill{
+    font-size:11px; padding:4px 10px; border-radius:20px; border:1px solid var(--line);
+    color:var(--text-dim); display:inline-flex; align-items:center; gap:6px;
+  }
+  .pill .dot{width:6px;height:6px;border-radius:50%;background:var(--open);}
+  .topbar .controls{ display:flex; align-items:center; gap:10px; }
+  .seg{ display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button{
+    background:none;border:none;color:var(--text-dim);padding:6px 11px;font-size:12px;
+    cursor:pointer; font-family:'IBM Plex Sans',sans-serif; border-right:1px solid var(--line);
+  }
+  .seg button:last-child{border-right:none;}
+  .seg button.active{ background:var(--panel-2); color:var(--text); }
+  .toggle-btn{
+    border:1px solid var(--line); background:var(--panel-2); color:var(--text-dim);
+    font-size:12px; padding:6px 12px; border-radius:8px; cursor:pointer;
+  }
+  .toggle-btn.on{ color:var(--risk); border-color:var(--risk); }
+
+  main{ padding:22px 26px 40px; }
+  .view{ display:none; }
+  .view.active{ display:block; }
+
+  /* ---- Stat row ---- */
+  .stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:0; margin-bottom:26px; }
+  .stat{ padding:0 24px; border-right:1px solid var(--line); }
+  .stat:first-child{ padding-left:0; }
+  .stat:last-child{ border-right:none; }
+  .stat .num{ font-size:34px; font-weight:600; line-height:1; }
+  .stat .num.risk{ color:var(--risk); }
+  .stat .num.blocked{ color:var(--blocked); }
+  .stat .lbl{ color:var(--text-dim); font-size:12.5px; margin-top:6px; }
+
+  /* ---- Map + alerts layout ---- */
+  .grid2{ display:grid; grid-template-columns:1fr 320px; gap:20px; align-items:start; }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
+  .panel h3{ font-size:14px; font-weight:600; margin:0 0 4px; }
+  .panel .sub{ color:var(--text-dim); font-size:12px; margin-bottom:14px; }
+
+  .mapwrap{ position:relative; height:460px; border-radius:8px; overflow:hidden;
+    background:
+      radial-gradient(circle at 20% 30%, rgba(76,122,94,0.09), transparent 40%),
+      radial-gradient(circle at 75% 65%, rgba(181,101,29,0.09), transparent 45%),
+      var(--panel-2);
+  }
+  .contour{ position:absolute; inset:0; opacity:.5; }
+  .map-hint{ font-size:12px; color:var(--text-dim); margin-bottom:10px; }
+  .net-badge{
+    font-size:11.5px; color:var(--accent); background:rgba(37,99,235,0.08);
+    border:1px solid rgba(37,99,235,0.28); padding:4px 10px; border-radius:20px;
+    white-space:nowrap; cursor:default;
+  }
+  .tile-fallback{
+    position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    text-align:center; background:var(--panel-2); padding:20px; z-index:400;
+  }
+  .tile-fallback.show{ display:flex; }
+  .locate-btn{
+    font-size:11.5px; color:var(--bg); background:var(--accent);
+    border:none; padding:5px 11px; border-radius:20px; cursor:pointer;
+    font-family:'IBM Plex Sans',sans-serif; font-weight:600;
+  }
+  .locate-btn:hover{ filter:brightness(1.1); }
+  .locate-btn:disabled{ opacity:0.6; cursor:default; }
+  .locate-status{ font-size:11.5px; color:var(--text-dim); margin:-4px 0 10px; min-height:14px; }
+  .locate-status.error{ color:var(--blocked); }
+  .you-marker{ position:relative; width:16px; height:16px; }
+  .you-marker .dot{
+    position:absolute; top:50%; left:50%; width:12px; height:12px; border-radius:50%;
+    background:#3B82F6; border:2px solid #fff; transform:translate(-50%,-50%);
+    box-shadow:0 0 0 2px rgba(59,130,246,0.4); z-index:2;
+  }
+  .you-marker .pulse{
+    position:absolute; top:50%; left:50%; width:16px; height:16px; border-radius:50%;
+    background:rgba(59,130,246,0.5); transform:translate(-50%,-50%);
+    animation: you-pulse 1.8s ease-out infinite;
+  }
+  @keyframes you-pulse{
+    0%   { transform:translate(-50%,-50%) scale(1);   opacity:0.7; }
+    100% { transform:translate(-50%,-50%) scale(3.2); opacity:0; }
+  }
+  .leaflet-bar, .leaflet-bar a{
+    background:var(--panel) !important; color:var(--text) !important; border-color:var(--line) !important;
+  }
+  .leaflet-bar a:hover{ background:var(--panel-2) !important; }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip{
+    background:var(--panel) !important; color:var(--text) !important;
+  }
+  .leaflet-popup-close-button{ color:var(--text-dim) !important; }
+  .leaflet-control-attribution{ background:rgba(255,255,255,0.85) !important; color:var(--text-dim) !important; }
+  .leaflet-control-attribution a{ color:var(--accent) !important; }
+  .node{
+    position:absolute; width:20px; height:20px; border-radius:50%;
+    transform:translate(-50%,-50%); cursor:pointer; border:2px solid var(--bg);
+    box-shadow:0 0 0 3px rgba(37,99,235,0.08);
+    display:flex; align-items:center; justify-content:center;
+    transition:box-shadow .15s;
+  }
+  .node:hover{ box-shadow:0 0 0 5px rgba(37,99,235,0.20); }
+  .node::after{ content:''; width:7px; height:7px; border-radius:50%; background:var(--bg); opacity:.55; }
+  .node.open{ background:var(--open); }
+  .node.risk{ background:var(--risk); }
+  .node.blocked{ background:var(--blocked); }
+  .node.selected{ box-shadow:0 0 0 4px rgba(37,99,235,0.35); }
+  .node-label{
+    position:absolute; transform:translate(-50%, 12px); font-size:11px; color:var(--text-dim);
+    white-space:nowrap; pointer-events:none;
+  }
+  .node-badge{
+    position:absolute; transform:translate(-50%, -26px); font-size:9.5px; font-weight:600;
+    padding:1px 6px; border-radius:8px; white-space:nowrap; pointer-events:none;
+    text-transform:uppercase; letter-spacing:.03em;
+  }
+  .node-badge.open{ background:rgba(76,122,94,0.16); color:var(--open); }
+  .node-badge.risk{ background:rgba(181,101,29,0.16); color:var(--risk); }
+  .node-badge.blocked{ background:rgba(166,61,48,0.16); color:var(--blocked); }
+  .vehicle-dot{
+    position:absolute; width:11px;height:11px; background:var(--text);
+    transform:translate(-50%,-50%) rotate(45deg); pointer-events:none;
+    border:2px solid var(--bg);
+  }
+  .diamond{ width:8px;height:8px; background:var(--text); display:inline-block; transform:rotate(45deg); border-radius:1px; }
+  .infocard{
+    position:absolute; width:220px; background:var(--panel); border:1px solid var(--line);
+    border-radius:8px; padding:14px; font-size:12.5px; box-shadow:0 8px 24px rgba(26,32,44,0.14);
+    z-index:5;
+  }
+  .infocard .name{ font-family:'IBM Plex Sans',sans-serif; font-weight:700; font-size:15px; margin-bottom:8px; }
+  .infocard .row{ display:flex; justify-content:space-between; margin-bottom:5px; color:var(--text-dim); }
+  .infocard .row b{ color:var(--text); font-weight:500; }
+  .infocard .status-badge{ display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; margin-top:6px; }
+  .status-badge.open{ background:rgba(76,122,94,0.14); color:var(--open); }
+  .status-badge.risk{ background:rgba(181,101,29,0.14); color:var(--risk); }
+  .status-badge.blocked{ background:rgba(166,61,48,0.14); color:var(--blocked); }
+  .infocard .close{ position:absolute; top:8px; right:10px; cursor:pointer; color:var(--text-dim); }
+
+  .legend{ display:flex; gap:16px; margin-top:12px; font-size:12px; color:var(--text-dim); }
+  .legend span{ display:inline-flex; align-items:center; gap:6px; }
+  .legend i{ width:8px;height:8px;border-radius:50%; display:inline-block; }
+
+  /* ---- Alerts ticker ---- */
+  .alert-item{ padding:10px 0 10px 12px; border-left:3px solid var(--line); margin-bottom:2px; position:relative; }
+  .alert-item.risk{ border-color:var(--risk); }
+  .alert-item.blocked{ border-color:var(--blocked); }
+  .alert-item.info{ border-color:var(--open); }
+  .alert-item .a-title{ font-size:13px; font-weight:500; margin-bottom:2px; }
+  .alert-item .a-meta{ font-size:11px; color:var(--text-dim); }
+  .alert-scroll{ max-height:400px; overflow-y:auto; padding-right:4px; }
+  .alert-scroll::-webkit-scrollbar{ width:5px; }
+  .alert-scroll::-webkit-scrollbar-thumb{ background:var(--line); border-radius:4px; }
+
+  /* ---- Route planner ---- */
+  .rp-controls{ display:flex; gap:12px; align-items:flex-end; margin-bottom:18px; flex-wrap:wrap; }
+  .field{ display:flex; flex-direction:column; gap:6px; }
+  .field label{ font-size:11.5px; color:var(--text-dim); }
+  select, textarea, input[type=text]{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    padding:9px 12px; border-radius:7px; font-family:'IBM Plex Sans',sans-serif; font-size:13px;
+    min-width:170px;
+  }
+  .btn{
+    background:var(--accent); color:#FFFFFF; border:none; padding:10px 18px; border-radius:7px;
+    font-weight:600; cursor:pointer; font-family:'IBM Plex Sans',sans-serif; font-size:13px;
+  }
+  .btn:hover{ filter:brightness(1.2); }
+  .btn.secondary{ background:transparent; border:1px solid var(--line); color:var(--text); }
+  .empty-hint{ color:var(--text-dim); font-size:12.5px; padding:14px 0; border-top:1px solid var(--line); }
+  .route-result{ display:none; }
+  .route-result.show{ display:block; }
+  .route-line{ display:flex; align-items:center; gap:10px; padding:12px 0; border-bottom:1px solid var(--line); }
+  .route-line:last-child{ border-bottom:none; }
+  .route-line .tag2{ font-size:11px; padding:3px 9px; border-radius:20px; font-weight:500; }
+  .tag2.primary{ background:rgba(181,101,29,0.14); color:var(--risk); }
+  .tag2.alt{ background:rgba(76,122,94,0.14); color:var(--open); }
+  .route-line .rtext{ flex:1; }
+  .route-line .rmeta{ color:var(--text-dim); font-size:12px; }
+
+  /* ---- Vehicle tracking ---- */
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th{ text-align:left; color:var(--text-dim); font-weight:500; font-size:11.5px; padding:8px 10px; border-bottom:1px solid var(--line); }
+  td{ padding:12px 10px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  .progress{ background:var(--line); height:6px; border-radius:4px; width:140px; overflow:hidden; }
+  .progress-fill{ height:100%; background:var(--open); }
+  .progress-fill.delayed{ background:var(--risk); }
+  .badge{ padding:3px 9px; border-radius:20px; font-size:11.5px; }
+  .badge.ontime{ background:rgba(76,122,94,0.14); color:var(--open); }
+  .badge.delayed{ background:rgba(181,101,29,0.14); color:var(--risk); }
+  .badge.halted{ background:rgba(166,61,48,0.14); color:var(--blocked); }
+
+  /* ---- Field reports ---- */
+  .form-grid{ display:grid; grid-template-columns:1fr 1fr; gap:16px; max-width:640px; }
+  .form-grid .full{ grid-column:1 / -1; }
+  textarea{ min-width:100%; min-height:80px; resize:vertical; font-family:'IBM Plex Sans',sans-serif; }
+  .gps-line{ display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text-dim); }
+  .photo-mock{
+    border:1px dashed var(--line); border-radius:8px; padding:16px; text-align:center; color:var(--text-dim);
+    font-size:12.5px; cursor:pointer;
+  }
+  .photo-mock.attached{ border-color:var(--open); color:var(--open); }
+  .reports-log{ margin-top:28px; }
+  .report-row{ padding:12px 0; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; gap:16px; }
+  .report-row .rr-text{ font-size:13px; }
+  .report-row .rr-meta{ font-size:11.5px; color:var(--text-dim); margin-top:3px; }
+
+  .scope-note{
+    margin-top:30px; padding:16px 20px; border:1px solid var(--line); border-radius:10px;
+    background:var(--panel); font-size:12.5px; color:var(--text-dim);
+  }
+  .scope-note b{ color:var(--text); }
+  .section-title{ font-size:20px; font-weight:600; margin-bottom:4px; }
+  .section-sub{ color:var(--text-dim); font-size:13px; margin-bottom:22px; }
+
+  @media (max-width: 900px){
+    .grid2{ grid-template-columns:1fr; }
+    .stats{ grid-template-columns:repeat(2,1fr); row-gap:16px; }
+    .form-grid{ grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- NAV RAIL -->
+  <div class="rail">
+    <div class="mark">T</div>
+    <button data-view="overview" class="active" title="Overview">&#9673;</button>
+    <button data-view="route" title="Route Planner">&#8635;</button>
+    <button data-view="vehicles" title="Vehicle Tracking">&#9873;</button>
+    <button data-view="reports" title="Field Reports">&#9998;</button>
+    <button data-view="alerts" title="Alerts">&#9888;</button>
+    <div class="spacer"></div>
+  </div>
+
+  <div>
+    <!-- TOP BAR -->
+    <div class="topbar">
+      <div class="title">Terrain <span id="viewLabel">— Regional Overview</span></div>
+      <div class="controls">
+        <span class="pill" title="Vehicle positions and weather move on a timer to show how live tracking would look and feel"><span class="dot"></span> <span id="liveLabel">Live simulation</span></span>
+        <div class="seg" id="langSeg">
+          <button data-lang="en" class="active">EN</button>
+          <button data-lang="hi">HI</button>
+          <button data-lang="as">AS</button>
+        </div>
+        <button class="toggle-btn" id="offlineBtn" title="Turn this on to see how a field report behaves with no internet — it saves on the device and shows 'pending sync' instead of failing">Offline mode: Off</button>
+      </div>
+    </div>
+
+    <main>
+      <!-- ===================== OVERVIEW ===================== -->
+      <div class="view active" id="view-overview">
+        <div class="stats">
+          <div class="stat"><div class="num" id="statOpen">--</div><div class="lbl">of 36 towns fully open<br>(normal travel time)</div></div>
+          <div class="stat"><div class="num risk" id="statRisk">--</div><div class="lbl">of 36 towns at risk<br>(passable, being watched)</div></div>
+          <div class="stat"><div class="num blocked" id="statBlocked">--</div><div class="lbl">of 36 towns blocked<br>(needs reroute now)</div></div>
+          <div class="stat"><div class="num" id="statVehicles">--</div><div class="lbl">vehicles on the road<br>carrying essential goods</div></div>
+        </div>
+
+        <div class="grid2">
+          <div class="panel">
+            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+              <h3 style="margin:0;">Town & district accessibility map</h3>
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <button class="locate-btn" id="locateBtn" type="button">&#128205; Show example location</button>
+                <span class="net-badge" title="This map pulls real map imagery from the internet, the same way a Google Maps embed does">&#128246; Live map — needs internet connection</span>
+              </div>
+            </div>
+            <div class="sub" style="margin-top:8px;">Real map of the North Eastern Region. <b style="color:var(--text)">Click any circle</b> to see that town's status, rainfall, and connectivity.</div>
+            <div class="map-hint" id="mapHint">&#9679; Click any town marker below to open its details</div>
+            <div class="locate-status" id="locateStatus"></div>
+            <div class="mapwrap" id="mapwrap">
+              <div id="leafletMap" style="position:absolute;inset:0;"></div>
+              <div id="tileFallback" class="tile-fallback">
+                <div>
+                  <div style="font-weight:600; margin-bottom:4px;">Map tiles couldn't load</div>
+                  <div style="font-size:12px; color:var(--text-dim);">This screen needs an internet connection to fetch map imagery. Check your connection and reload.</div>
+                </div>
+              </div>
+            </div>
+            <div class="legend">
+              <span><i style="background:var(--open)"></i>Open — road clear, normal travel time</span>
+              <span><i style="background:var(--risk)"></i>At risk — passable but flagged for weather/traffic</span>
+              <span><i style="background:var(--blocked)"></i>Blocked — impassable, reroute required</span>
+              <span><i class="diamond"></i>Vehicle in transit (moves live)</span>
+              <span><i style="background:#3B82F6;"></i>Example: a field officer's/driver's own live position</span>
+            </div>
+            <div class="legend" style="margin-top:8px;">
+              <span>Route lines follow real roads (fetched live) and are colored by status: <b style="color:var(--text)">solid faint</b> is a clear route, <b style="color:var(--risk)">solid bright</b> is at-risk, <b style="color:var(--blocked)">dashed red</b> is blocked</span>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h3>Live alerts</h3>
+            <div class="sub">Auto-generated + field-reported</div>
+            <div class="alert-scroll" id="alertFeedOverview"></div>
+          </div>
+        </div>
+
+        <div class="scope-note">
+          <b>Prototype scope note:</b> the map itself is real (OpenStreetMap via Leaflet, view locked to the NER region) and the route lines follow actual roads — fetched live from a public routing service — rather than straight lines between districts, so it needs an internet connection to load both the map tiles and the routes. If a route can't be fetched, it falls back to a straight line between the two points rather than disappearing. What's simulated is the data layered on top: district status, weather risk, vehicle positions, and alerts. In a production build, road/weather status would be computed by an ML risk model trained on IMD rainfall data, BRO/NDMA landslide-prone stretch records, and historical incident logs; vehicle positions would come from live GPS devices rather than a timer.
+        </div>
+      </div>
+
+      <!-- ===================== ROUTE PLANNER ===================== -->
+      <div class="view" id="view-route">
+        <div class="section-title">Route planner</div>
+        <div class="section-sub">AI-suggested primary and alternate routes with estimated delay.</div>
+
+        <div class="panel">
+          <div class="rp-controls">
+            <div class="field">
+              <label>1. Pick where you're starting from</label>
+              <select id="originSel"></select>
+            </div>
+            <div class="field">
+              <label>2. Pick where the delivery is going</label>
+              <select id="destSel"></select>
+            </div>
+            <button class="btn" id="findRouteBtn">3. Find route</button>
+          </div>
+
+          <div class="empty-hint" id="routeEmptyHint">Choose an origin and destination above, then click "Find route" to see the suggested path and whether an alternate is needed.</div>
+
+          <div class="route-result" id="routeResult">
+            <div class="route-line">
+              <span class="tag2 primary" id="primaryTag">PRIMARY</span>
+              <div class="rtext">
+                <div id="primaryPath">—</div>
+                <div class="rmeta" id="primaryMeta"></div>
+              </div>
+            </div>
+            <div class="route-line" id="altRow" style="display:none;">
+              <span class="tag2 alt">ALTERNATE</span>
+              <div class="rtext">
+                <div id="altPath">—</div>
+                <div class="rmeta" id="altMeta"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="scope-note">
+          <b>Prototype scope note:</b> this planner picks between pre-mapped route options and flags a route as risky using a simple rule (simulated rainfall above a threshold on a landslide-prone stretch). A production system would use a real routing engine (e.g. OSRM/Google Maps APIs) with a live "avoid this segment" constraint driven by the ML risk model.
+        </div>
+      </div>
+
+      <!-- ===================== VEHICLE TRACKING ===================== -->
+      <div class="view" id="view-vehicles">
+        <div class="section-title">Vehicle &amp; supply tracking</div>
+        <div class="section-sub">Live position and delivery status of vehicles carrying essential goods. "Progress" = how much of the journey is done. A vehicle turns <b style="color:var(--risk)">Delayed</b> when it's behind schedule, and <b style="color:var(--blocked)">Halted</b> when it's stopped at a blocked route.</div>
+
+        <div class="panel">
+          <table>
+            <thead>
+              <tr><th>Vehicle ID</th><th>Carrying</th><th>From → To</th><th>Journey progress</th><th>Time left</th><th>Status</th></tr>
+            </thead>
+            <tbody id="vehicleTable"></tbody>
+          </table>
+        </div>
+
+        <div class="scope-note">
+          <b>Prototype scope note:</b> vehicle progress is animated with a timer to demonstrate the tracking UI. A production build would consume live coordinates from a GPS/IoT device fitted to each vehicle via MQTT or a similar telemetry protocol.
+        </div>
+      </div>
+
+      <!-- ===================== FIELD REPORTS ===================== -->
+      <div class="view" id="view-reports">
+        <div class="section-title">Field officer reporting</div>
+        <div class="section-sub">Submit a geo-tagged incident update from a remote location. Works offline — syncs when back online.</div>
+
+        <div class="panel">
+          <div class="form-grid">
+            <div class="field">
+              <label>Town / location</label>
+              <select id="reportLocation"></select>
+            </div>
+            <div class="field">
+              <label>Incident type</label>
+              <select id="reportType">
+                <option>Landslide</option>
+                <option>Flooded road</option>
+                <option>Bridge damage</option>
+                <option>Traffic congestion</option>
+                <option>Road cleared / reopened</option>
+              </select>
+            </div>
+            <div class="field full">
+              <label>Description</label>
+              <textarea id="reportDesc" placeholder="Brief description of what you're seeing on the ground..."></textarea>
+            </div>
+            <div class="field">
+              <label>Geo-tag</label>
+              <div class="gps-line">
+                <span id="gpsText">Not captured</span>
+                <button class="btn secondary" id="gpsBtn" type="button">Use current GPS</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Photo evidence</label>
+              <div class="photo-mock" id="photoMock">Tap to attach a photo (mock)</div>
+            </div>
+            <div class="full">
+              <button class="btn" id="submitReportBtn">Submit report</button>
+            </div>
+          </div>
+
+          <div class="reports-log" id="reportsLog">
+            <h3 style="margin-bottom:10px;">Recent field submissions</h3>
+          </div>
+        </div>
+
+        <div class="scope-note">
+          <b>Prototype scope note:</b> this form works fully offline in the browser (data held locally) and would sync to the server once connectivity returns. Photo attachment is mocked here — production would use device camera capture with compressed upload on reconnect.
+        </div>
+      </div>
+
+      <!-- ===================== ALERTS ===================== -->
+      <div class="view" id="view-alerts">
+        <div class="section-title">All alerts</div>
+        <div class="section-sub">Full log — AI predictions, field reports, and system status changes. Newest first. The coloured bar on the left shows how serious it is:</div>
+        <div class="legend" style="margin-bottom:16px;">
+          <span><i style="background:var(--blocked)"></i>Blocked — road impassable</span>
+          <span><i style="background:var(--risk)"></i>At risk — being watched</span>
+          <span><i style="background:var(--open)"></i>Good news — cleared / reopened</span>
+        </div>
+        <div class="panel">
+          <div class="alert-scroll" id="alertFeedFull" style="max-height:none;"></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script>
+/* ============================ DATA ============================ */
+const districts = [
+  // Arunachal Pradesh
+  { id:'itn', name:'Itanagar',   state:'Arunachal Pradesh', lat:27.0844, lng:93.6053, status:'open', rainfall:12, connectivity:92 },
+  { id:'nhl', name:'Naharlagun', state:'Arunachal Pradesh', lat:27.1040, lng:93.6950, status:'open', rainfall:14, connectivity:89 },
+  { id:'psg', name:'Pasighat',   state:'Arunachal Pradesh', lat:28.0670, lng:95.3260, status:'open', rainfall:18, connectivity:80 },
+  { id:'twg', name:'Tawang',     state:'Arunachal Pradesh', lat:27.5859, lng:91.8594, status:'risk', rainfall:46, connectivity:58 },
+  { id:'zro', name:'Ziro',       state:'Arunachal Pradesh', lat:27.5486, lng:93.8340, status:'open', rainfall:20, connectivity:76 },
+
+  // Assam
+  { id:'gwh', name:'Guwahati',  state:'Assam', lat:26.1445, lng:91.7362, status:'open', rainfall:8,   connectivity:97 },
+  { id:'dib', name:'Dibrugarh', state:'Assam', lat:27.4728, lng:94.9120, status:'risk', rainfall:64,  connectivity:71 },
+  { id:'jor', name:'Jorhat',    state:'Assam', lat:26.7509, lng:94.2037, status:'open', rainfall:22,  connectivity:90 },
+  { id:'tez', name:'Tezpur',    state:'Assam', lat:26.6528, lng:92.8000, status:'open', rainfall:19,  connectivity:91 },
+  { id:'sil', name:'Silchar',   state:'Assam', lat:24.8333, lng:92.7789, status:'open', rainfall:26,  connectivity:84 },
+  { id:'tin', name:'Tinsukia',  state:'Assam', lat:27.4898, lng:95.3599, status:'open', rainfall:31,  connectivity:82 },
+  { id:'nag', name:'Nagaon',    state:'Assam', lat:26.3480, lng:92.6840, status:'open', rainfall:15,  connectivity:93 },
+
+  // Meghalaya
+  { id:'shl', name:'Shillong',   state:'Meghalaya', lat:25.5788, lng:91.8933, status:'blocked', rainfall:118, connectivity:38 },
+  { id:'tur', name:'Tura',       state:'Meghalaya', lat:25.5140, lng:90.2030, status:'open',    rainfall:28,  connectivity:79 },
+  { id:'jow', name:'Jowai',      state:'Meghalaya', lat:25.4500, lng:92.2000, status:'risk',    rainfall:71,  connectivity:55 },
+  { id:'non', name:'Nongstoin',  state:'Meghalaya', lat:25.5167, lng:91.2667, status:'open',    rainfall:24,  connectivity:74 },
+
+  // Nagaland
+  { id:'koh', name:'Kohima',     state:'Nagaland', lat:25.6751, lng:94.1086, status:'open', rainfall:15, connectivity:90 },
+  { id:'dmp', name:'Dimapur',    state:'Nagaland', lat:25.9117, lng:93.7217, status:'open', rainfall:17, connectivity:94 },
+  { id:'mkc', name:'Mokokchung', state:'Nagaland', lat:26.3230, lng:94.5170, status:'open', rainfall:21, connectivity:78 },
+  { id:'wkh', name:'Wokha',      state:'Nagaland', lat:26.0980, lng:94.2610, status:'open', rainfall:19, connectivity:80 },
+
+  // Manipur
+  { id:'imp', name:'Imphal',        state:'Manipur', lat:24.8170, lng:93.9368, status:'risk', rainfall:57, connectivity:64 },
+  { id:'chu', name:'Churachandpur', state:'Manipur', lat:24.3300, lng:93.6800, status:'open', rainfall:25, connectivity:73 },
+  { id:'tho', name:'Thoubal',       state:'Manipur', lat:24.6360, lng:93.9990, status:'open', rainfall:20, connectivity:88 },
+  { id:'ukh', name:'Ukhrul',        state:'Manipur', lat:25.0450, lng:94.3630, status:'open', rainfall:23, connectivity:70 },
+
+  // Mizoram
+  { id:'aiz', name:'Aizawl',    state:'Mizoram', lat:23.7271, lng:92.7176, status:'open', rainfall:20, connectivity:88 },
+  { id:'lgl', name:'Lunglei',   state:'Mizoram', lat:22.8874, lng:92.7357, status:'risk', rainfall:52, connectivity:60 },
+  { id:'cmp', name:'Champhai',  state:'Mizoram', lat:23.4530, lng:93.3280, status:'open', rainfall:18, connectivity:75 },
+  { id:'srp', name:'Serchhip',  state:'Mizoram', lat:23.3040, lng:92.8480, status:'open', rainfall:22, connectivity:81 },
+
+  // Tripura
+  { id:'agt', name:'Agartala',    state:'Tripura', lat:23.8315, lng:91.2868, status:'open', rainfall:22, connectivity:85 },
+  { id:'uda', name:'Udaipur',     state:'Tripura', lat:23.5330, lng:91.4830, status:'open', rainfall:20, connectivity:87 },
+  { id:'dhm', name:'Dharmanagar', state:'Tripura', lat:24.3700, lng:92.1670, status:'open', rainfall:24, connectivity:79 },
+  { id:'kls', name:'Kailashahar', state:'Tripura', lat:24.3290, lng:92.0080, status:'blocked', rainfall:96, connectivity:41 },
+
+  // Sikkim
+  { id:'gtk', name:'Gangtok',   state:'Sikkim', lat:27.3389, lng:88.6065, status:'risk', rainfall:49, connectivity:69 },
+  { id:'nmc', name:'Namchi',    state:'Sikkim', lat:27.1670, lng:88.3630, status:'open', rainfall:27, connectivity:83 },
+  { id:'gys', name:'Gyalshing', state:'Sikkim', lat:27.2833, lng:88.2667, status:'open', rainfall:30, connectivity:76 },
+  { id:'mng', name:'Mangan',    state:'Sikkim', lat:27.5090, lng:88.5320, status:'risk', rainfall:44, connectivity:62 },
+];
+
+// Each state hub connects to the towns within its own state (local/town-level
+// routes), and hubs connect to each other for inter-state corridors.
+const edges = [
+  // Arunachal Pradesh — local
+  ['itn','nhl'], ['itn','psg'], ['itn','twg'], ['itn','zro'],
+  // Assam — local
+  ['gwh','dib'], ['gwh','jor'], ['gwh','tez'], ['gwh','sil'], ['gwh','nag'], ['dib','tin'], ['jor','tin'],
+  // Meghalaya — local
+  ['shl','tur'], ['shl','jow'], ['shl','non'],
+  // Nagaland — local
+  ['koh','dmp'], ['koh','mkc'], ['koh','wkh'],
+  // Manipur — local
+  ['imp','chu'], ['imp','tho'], ['imp','ukh'],
+  // Mizoram — local
+  ['aiz','lgl'], ['aiz','cmp'], ['aiz','srp'],
+  // Tripura — local
+  ['agt','uda'], ['agt','dhm'], ['dhm','kls'],
+  // Sikkim — local
+  ['gtk','nmc'], ['gtk','gys'], ['gtk','mng'],
+  // Inter-state hub corridors
+  ['gtk','gwh'], ['gwh','shl'], ['gwh','koh'],
+  ['dib','itn'], ['koh','imp'], ['shl','agt'], ['agt','aiz'],
+  ['aiz','imp'], ['koh','aiz'],
+  ['itn','koh'], ['dib','koh'], ['gwh','imp'], ['gwh','agt']
+];
+
+let vehicles = [
+  { id:'NL-01', cargo:'Medicines', from:'gwh', to:'shl', progress:35, status:'delayed', eta:'2h 40m' },
+  { id:'NL-02', cargo:'Food supplies', from:'gwh', to:'koh', progress:62, status:'ontime', eta:'1h 05m' },
+  { id:'NL-03', cargo:'Construction material', from:'aiz', to:'imp', progress:18, status:'ontime', eta:'3h 20m' },
+  { id:'NL-04', cargo:'Agricultural produce', from:'gtk', to:'gwh', progress:80, status:'halted', eta:'—' },
+  { id:'NL-05', cargo:'Medicines', from:'koh', to:'aiz', progress:47, status:'ontime', eta:'2h 10m' },
+];
+
+let alerts = [
+  { sev:'blocked', title:'Shillong: Road blocked by landslide (NH-40 stretch)', meta:'AI Prediction · rainfall 118mm · 12 min ago' },
+  { sev:'risk', title:'Dibrugarh: Route flagged high-risk ahead of heavy rain', meta:'AI Prediction · rainfall 64mm · 34 min ago' },
+  { sev:'risk', title:'Imphal: Congestion reported near district border checkpoint', meta:'Field report · Officer R. Meitei · 51 min ago' },
+  { sev:'info', title:'Agartala–Aizawl corridor: fully reopened after repair', meta:'System update · 1h 20m ago' },
+  { sev:'risk', title:'Gangtok: Rainfall crossing risk threshold on NH-10', meta:'AI Prediction · rainfall 49mm · 2h ago' },
+];
+
+let reports = [];
+
+const translations = {
+  en: { liveLabel:'Live simulation', overview:'Regional Overview', route:'Route Planner', vehicles:'Vehicle Tracking', reports:'Field Reports', alerts:'Alerts' },
+  hi: { liveLabel:'लाइव सिमुलेशन', overview:'क्षेत्रीय अवलोकन', route:'मार्ग योजना', vehicles:'वाहन ट्रैकिंग', reports:'फील्ड रिपोर्ट', alerts:'चेतावनियाँ' },
+  as: { liveLabel:'লাইভ ছিমুলেচন', overview:'আঞ্চলিক অৱলোকন', route:'পথ পৰিকল্পনা', vehicles:'বাহন ট্ৰেকিং', reports:'ফিল্ড ৰিপ'+String.fromCharCode(0x9F0)+'ৰ্ট', alerts:'সতৰ্কবাণী' },
+};
+let currentLang = 'en';
+
+/* ============================ NAV ============================ */
+const railButtons = document.querySelectorAll('.rail button[data-view]');
+const views = document.querySelectorAll('.view');
+railButtons.forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    railButtons.forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const target = btn.dataset.view;
+    views.forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-'+target).classList.add('active');
+    document.getElementById('viewLabel').textContent = '— ' + translations[currentLang][target];
+  });
+});
+
+/* ============================ LANGUAGE TOGGLE ============================ */
+document.getElementById('langSeg').addEventListener('click', (e)=>{
+  if(e.target.tagName !== 'BUTTON') return;
+  document.querySelectorAll('#langSeg button').forEach(b=>b.classList.remove('active'));
+  e.target.classList.add('active');
+  currentLang = e.target.dataset.lang;
+  document.getElementById('liveLabel').textContent = translations[currentLang].liveLabel;
+  const activeView = document.querySelector('.rail button.active').dataset.view;
+  document.getElementById('viewLabel').textContent = '— ' + translations[currentLang][activeView];
+});
+
+/* ============================ OFFLINE TOGGLE ============================ */
+const offlineBtn = document.getElementById('offlineBtn');
+let offline = false;
+offlineBtn.addEventListener('click', ()=>{
+  offline = !offline;
+  offlineBtn.textContent = 'Offline mode: ' + (offline ? 'On' : 'Off');
+  offlineBtn.classList.toggle('on', offline);
+});
+
+/* ============================ MAP RENDER ============================ */
+let leafletMap = null;
+let markerLayer = {};
+let routeLineLayer = {};
+let vehicleMarkerLayer = {};
+
+function statusColorHex(s){
+  return s==='open' ? '#4C7A5E' : s==='risk' ? '#B5651D' : '#A63D30';
+}
+
+const NER_BOUNDS = L.latLngBounds([21.3, 87.0], [29.9, 97.9]);
+let edgeGeometryCache = {};
+
+function initMap(){
+  leafletMap = L.map('leafletMap', {
+    scrollWheelZoom: true,
+    minZoom: 6,
+    maxBounds: NER_BOUNDS.pad(0.15),
+    maxBoundsViscosity: 0.9,
+  });
+  leafletMap.fitBounds(NER_BOUNDS);
+
+  const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom: 19,
+  }).addTo(leafletMap);
+
+  // If tiles genuinely fail to load (e.g. no internet), show a clear fallback message
+  // instead of a silently blank/grey map.
+  let tileErrorCount = 0;
+  let tileLoadedOk = false;
+  tileLayer.on('tileerror', ()=>{
+    tileErrorCount++;
+    if(tileErrorCount > 4 && !tileLoadedOk){
+      document.getElementById('tileFallback').classList.add('show');
+    }
+  });
+  tileLayer.on('tileload', ()=>{
+    tileLoadedOk = true;
+    document.getElementById('tileFallback').classList.remove('show');
+  });
+
+  renderEdges();
+  renderNodes();
+  renderVehicleDots();
+}
+
+/* ============================ EXAMPLE "MY LOCATION" MARKER ============================ */
+// This is a fixed example point (not real GPS) showing how a field officer's or
+// driver's own live position would appear on the map in the real product.
+const EXAMPLE_LOCATION = { lat: 26.2463, lng: 92.2101, note: 'Example position — on the open Guwahati–Nagaon route' };
+let youMarker = null;
+
+function setupLocateButton(){
+  const btn = document.getElementById('locateBtn');
+  const status = document.getElementById('locateStatus');
+
+  btn.addEventListener('click', ()=>{
+    if(youMarker){
+      leafletMap.removeLayer(youMarker);
+      youMarker = null;
+      btn.textContent = '📍 Show example location';
+      status.textContent = '';
+      return;
+    }
+    placeYouMarker(EXAMPLE_LOCATION.lat, EXAMPLE_LOCATION.lng);
+    btn.textContent = '📍 Hide example location';
+    status.textContent = `Example only — this isn't your real location. ${EXAMPLE_LOCATION.note}.`;
+  });
+}
+
+function placeYouMarker(lat, lng){
+  if(youMarker) leafletMap.removeLayer(youMarker);
+  const icon = L.divIcon({
+    className:'',
+    html:`<div class="you-marker"><div class="pulse"></div><div class="dot"></div></div>`,
+    iconSize:[16,16], iconAnchor:[8,8],
+  });
+  youMarker = L.marker([lat,lng], { icon, zIndexOffset:1000 }).addTo(leafletMap);
+  youMarker.bindPopup(`<div style="font-family:'IBM Plex Sans',sans-serif; font-size:12.5px; color:var(--text);">Example location<br><span style="color:var(--text-dim); font-size:11px;">Not your real GPS — a placeholder for the demo</span></div>`);
+  leafletMap.setView([lat,lng], Math.max(leafletMap.getZoom(), 9));
+  youMarker.openPopup();
+}
+
+function edgeStatus(da, db){
+  return (da.status==='blocked'||db.status==='blocked') ? 'blocked'
+       : (da.status==='risk'||db.status==='risk') ? 'risk' : 'open';
+}
+
+function drawEdgeLine(i, latlngs, status){
+  if(routeLineLayer[i]) leafletMap.removeLayer(routeLineLayer[i]);
+  routeLineLayer[i] = L.polyline(latlngs, {
+    color: statusColorHex(status),
+    weight: status==='open' ? 3 : 4.5,
+    opacity: status==='open' ? 0.6 : 0.9,
+    dashArray: status==='blocked' ? '6,6' : null,
+    lineJoin: 'round',
+  }).addTo(leafletMap);
+}
+
+// Fetches the real road path between two points from OSRM's public routing
+// service. Falls back to a straight line if the request fails (e.g. offline).
+async function fetchRouteGeometry(da, db){
+  try{
+    const url = `https://router.project-osrm.org/route/v1/driving/${da.lng},${da.lat};${db.lng},${db.lat}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('routing service error');
+    const data = await res.json();
+    if(data.routes && data.routes[0]){
+      return data.routes[0].geometry.coordinates.map(c=>[c[1], c[0]]);
+    }
+    throw new Error('no route returned');
+  }catch(e){
+    return null;
+  }
+}
+
+function renderEdges(){
+  edges.forEach(([a,b], i)=>{
+    const da = districts.find(d=>d.id===a), db = districts.find(d=>d.id===b);
+    const status = edgeStatus(da, db);
+    if(edgeGeometryCache[i]){
+      drawEdgeLine(i, edgeGeometryCache[i], status);
+      return;
+    }
+    const straight = [[da.lat,da.lng],[db.lat,db.lng]];
+    drawEdgeLine(i, straight, status);
+    fetchRouteGeometry(da, db).then(geom=>{
+      edgeGeometryCache[i] = geom || straight;
+      const da2 = districts.find(d=>d.id===a), db2 = districts.find(d=>d.id===b);
+      drawEdgeLine(i, edgeGeometryCache[i], edgeStatus(da2, db2));
+    });
+  });
+}
+
+function renderNodes(){
+  Object.values(markerLayer).forEach(m=>leafletMap.removeLayer(m));
+  markerLayer = {};
+  districts.forEach(d=>{
+    const color = statusColorHex(d.status);
+    const statusText = d.status==='open'?'Open':d.status==='risk'?'At risk':'Blocked';
+    const icon = L.divIcon({
+      className: '',
+      html: `
+        <div style="position:relative; display:flex; flex-direction:column; align-items:center; transform:translateY(-6px);">
+          <div style="font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:.03em;
+                      background:${color}29; color:${color}; padding:1px 6px; border-radius:8px; margin-bottom:3px; white-space:nowrap;">${statusText}</div>
+          <div style="width:18px;height:18px;border-radius:50%; background:${color}; border:2px solid var(--bg,#0A0E14);
+                      box-shadow:0 0 0 3px rgba(37,99,235,0.10);"></div>
+          <div style="font-size:11px; color:var(--text-dim); margin-top:3px; white-space:nowrap; font-family:'IBM Plex Sans',sans-serif;">${d.name}</div>
+        </div>`,
+      iconSize: [0,0],
+      iconAnchor: [0,0],
+    });
+    const marker = L.marker([d.lat, d.lng], { icon }).addTo(leafletMap);
+    marker.bindPopup(`
+      <div style="font-family:'IBM Plex Sans',sans-serif; min-width:170px;">
+        <div style="font-family:'IBM Plex Sans',sans-serif; font-weight:700; font-size:15px; margin-bottom:8px; color:var(--text);">${d.name}</div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px; color:var(--text-dim); font-size:12.5px;"><span>State</span><b style="color:var(--text);">${d.state}</b></div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px; color:var(--text-dim); font-size:12.5px;"><span>Connectivity</span><b style="color:var(--text);">${d.connectivity}%</b></div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-dim); font-size:12.5px;"><span>Rainfall (24h)</span><b style="color:var(--text);">${d.rainfall} mm</b></div>
+        <span class="status-badge ${d.status}">${statusText}</span>
+      </div>
+    `);
+    marker.on('click', ()=>{
+      const hint = document.getElementById('mapHint');
+      if(hint) hint.style.display = 'none';
+    });
+    markerLayer[d.id] = marker;
+  });
+}
+
+/* ============================ VEHICLE DOTS ON MAP ============================ */
+function findEdgeGeometry(fromId, toId){
+  for(let i=0;i<edges.length;i++){
+    const [a,b] = edges[i];
+    if((a===fromId && b===toId) || (a===toId && b===fromId)){
+      const geom = edgeGeometryCache[i];
+      if(!geom) return null;
+      return (a===fromId) ? geom : geom.slice().reverse();
+    }
+  }
+  return null;
+}
+
+function pointAlongPath(latlngs, t){
+  const segs = latlngs.length - 1;
+  const pos = Math.min(Math.max(t,0),1) * segs;
+  const idx = Math.min(Math.floor(pos), segs-1);
+  const segT = pos - idx;
+  const p0 = latlngs[idx], p1 = latlngs[idx+1];
+  return [p0[0] + (p1[0]-p0[0])*segT, p0[1] + (p1[1]-p0[1])*segT];
+}
+
+function renderVehicleDots(){
+  Object.values(vehicleMarkerLayer).forEach(m=>leafletMap.removeLayer(m));
+  vehicleMarkerLayer = {};
+  vehicles.forEach(v=>{
+    if(v.status==='halted') return;
+    const from = districts.find(d=>d.id===v.from), to = districts.find(d=>d.id===v.to);
+    const t = v.progress/100;
+    const geom = findEdgeGeometry(v.from, v.to);
+    let lat, lng;
+    if(geom && geom.length > 1){
+      const pt = pointAlongPath(geom, t);
+      lat = pt[0]; lng = pt[1];
+    } else {
+      lat = from.lat + (to.lat-from.lat)*t;
+      lng = from.lng + (to.lng-from.lng)*t;
+    }
+    const icon = L.divIcon({
+      className:'',
+      html:`<div style="width:10px;height:10px;background:var(--text);transform:rotate(45deg);border:2px solid var(--bg);"></div>`,
+      iconSize:[10,10], iconAnchor:[5,5],
+    });
+    vehicleMarkerLayer[v.id] = L.marker([lat,lng], { icon, interactive:false }).addTo(leafletMap);
+  });
+}
+
+/* ============================ ALERTS RENDER ============================ */
+function renderAlerts(){
+  const feeds = [document.getElementById('alertFeedOverview'), document.getElementById('alertFeedFull')];
+  feeds.forEach(feed=>{
+    feed.innerHTML = '';
+    alerts.forEach(a=>{
+      const el = document.createElement('div');
+      el.className = 'alert-item ' + a.sev;
+      el.innerHTML = `<div class="a-title">${a.title}</div><div class="a-meta">${a.meta}</div>`;
+      feed.appendChild(el);
+    });
+  });
+}
+
+/* ============================ STATS ============================ */
+function renderStats(){
+  document.getElementById('statOpen').textContent = districts.filter(d=>d.status==='open').length;
+  document.getElementById('statRisk').textContent = districts.filter(d=>d.status==='risk').length;
+  document.getElementById('statBlocked').textContent = districts.filter(d=>d.status==='blocked').length;
+  document.getElementById('statVehicles').textContent = vehicles.filter(v=>v.status!=='halted').length;
+}
+
+/* ============================ ROUTE PLANNER ============================ */
+// Builds <optgroup> blocks per state so a 36-town list stays easy to scan.
+function populateByState(selectEl){
+  const states = [...new Set(districts.map(d=>d.state))];
+  states.forEach(state=>{
+    const group = document.createElement('optgroup');
+    group.label = state;
+    districts.filter(d=>d.state===state).forEach(d=>{
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = d.name;
+      group.appendChild(opt);
+    });
+    selectEl.appendChild(group);
+  });
+}
+
+const originSel = document.getElementById('originSel');
+const destSel = document.getElementById('destSel');
+populateByState(originSel);
+populateByState(destSel);
+destSel.selectedIndex = 3;
+
+// Straight-line distance in km between two lat/lng points (haversine).
+function distanceKm(a, b){
+  const R = 6371;
+  const dLat = (b.lat-a.lat) * Math.PI/180;
+  const dLng = (b.lng-a.lng) * Math.PI/180;
+  const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+// Picks a sensible waypoint for an alternate route: prefer a town directly
+// connected (by an existing edge) to either endpoint; otherwise fall back to
+// the nearest open town by straight-line distance, so the suggestion stays
+// geographically plausible instead of jumping to a random far-off hub.
+function findAlternateVia(from, to){
+  const neighborIds = new Set();
+  edges.forEach(([a,b])=>{
+    if(a===from.id || a===to.id) neighborIds.add(b);
+    if(b===from.id || b===to.id) neighborIds.add(a);
+  });
+  neighborIds.delete(from.id); neighborIds.delete(to.id);
+
+  const openNeighbors = [...neighborIds]
+    .map(id=>districts.find(d=>d.id===id))
+    .filter(d=>d && d.status==='open');
+  if(openNeighbors.length){
+    openNeighbors.sort((x,y)=>distanceKm(from,x)+distanceKm(to,x) - (distanceKm(from,y)+distanceKm(to,y)));
+    return openNeighbors[0];
+  }
+
+  const otherOpen = districts.filter(d=>d.status==='open' && d.id!==from.id && d.id!==to.id);
+  otherOpen.sort((x,y)=>distanceKm(from,x)+distanceKm(to,x) - (distanceKm(from,y)+distanceKm(to,y)));
+  return otherOpen[0] || districts[0];
+}
+
+document.getElementById('findRouteBtn').addEventListener('click', ()=>{
+  const from = districts.find(d=>d.id===originSel.value);
+  const to = districts.find(d=>d.id===destSel.value);
+  const result = document.getElementById('routeResult');
+  const risky = from.status!=='open' || to.status!=='open';
+
+  document.getElementById('primaryPath').textContent = `${from.name} → ${to.name} (direct corridor)`;
+  document.getElementById('primaryMeta').textContent = risky
+    ? `Flagged high-risk — rainfall ${Math.max(from.rainfall,to.rainfall)}mm near ${to.status!=='open'?to.name:from.name}. Estimated delay 2–4 hrs.`
+    : `Clear — estimated travel time 3h 10m, no active risk factors.`;
+
+  const altRow = document.getElementById('altRow');
+  if(risky){
+    const via = findAlternateVia(from, to);
+    document.getElementById('altPath').textContent = `${from.name} → ${via.name} → ${to.name} (alternate)`;
+    document.getElementById('altMeta').textContent = `Adds ~45 min but avoids the flagged stretch. Suggested by risk-avoidance rule.`;
+    altRow.style.display = 'flex';
+  } else {
+    altRow.style.display = 'none';
+  }
+  result.classList.add('show');
+  document.getElementById('routeEmptyHint').style.display = 'none';
+});
+
+/* ============================ VEHICLE TABLE ============================ */
+function renderVehicleTable(){
+  const tbody = document.getElementById('vehicleTable');
+  tbody.innerHTML = '';
+  vehicles.forEach(v=>{
+    const from = districts.find(d=>d.id===v.from), to = districts.find(d=>d.id===v.to);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${v.id}</td>
+      <td>${v.cargo}</td>
+      <td>${from.name} → ${to.name}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="progress"><div class="progress-fill ${v.status==='delayed'?'delayed':''}" style="width:${v.progress}%"></div></div>
+          <span style="font-size:11.5px;color:var(--text-dim);min-width:32px;">${Math.round(v.progress)}%</span>
+        </div>
+      </td>
+      <td>${v.eta}</td>
+      <td><span class="badge ${v.status}">${v.status==='ontime'?'On time':v.status==='delayed'?'Delayed':'Halted'}</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+/* ============================ FIELD REPORTS ============================ */
+const reportLocation = document.getElementById('reportLocation');
+populateByState(reportLocation);
+
+let gpsSet = false;
+document.getElementById('gpsBtn').addEventListener('click', ()=>{
+  const d = districts.find(x=>x.id===reportLocation.value);
+  const lat = (25 + Math.random()*3).toFixed(4);
+  const lng = (91 + Math.random()*6).toFixed(4);
+  document.getElementById('gpsText').textContent = `${lat}° N, ${lng}° E (near ${d.name})`;
+  gpsSet = true;
+});
+
+const photoMock = document.getElementById('photoMock');
+let photoAttached = false;
+photoMock.addEventListener('click', ()=>{
+  photoAttached = !photoAttached;
+  photoMock.classList.toggle('attached', photoAttached);
+  photoMock.textContent = photoAttached ? 'Photo attached (mock_incident.jpg)' : 'Tap to attach a photo (mock)';
+});
+
+function renderReportsLog(){
+  const log = document.getElementById('reportsLog');
+  log.querySelectorAll('.report-row').forEach(r=>r.remove());
+  reports.slice().reverse().forEach(r=>{
+    const row = document.createElement('div');
+    row.className = 'report-row';
+    row.innerHTML = `
+      <div>
+        <div class="rr-text"><b>${r.type}</b> — ${r.district}</div>
+        <div class="rr-meta">${r.desc || 'No description provided'}</div>
+      </div>
+      <div class="rr-meta">${r.gps}<br>${r.time}</div>
+    `;
+    log.appendChild(row);
+  });
+}
+
+document.getElementById('submitReportBtn').addEventListener('click', ()=>{
+  const d = districts.find(x=>x.id===reportLocation.value);
+  const type = document.getElementById('reportType').value;
+  const desc = document.getElementById('reportDesc').value;
+  const gps = gpsSet ? document.getElementById('gpsText').textContent : 'Not captured';
+
+  reports.push({ district:d.name, type, desc, gps, time: offline ? 'Saved offline — pending sync' : 'Just now · synced' });
+  renderReportsLog();
+
+  const sevMap = { 'Landslide':'blocked', 'Flooded road':'blocked', 'Bridge damage':'risk', 'Traffic congestion':'risk', 'Road cleared / reopened':'info' };
+  alerts.unshift({ sev: sevMap[type] || 'info', title: `${d.name}: ${type}`, meta: `Field report · ${offline ? 'queued offline' : 'just now'}` });
+  if(sevMap[type]==='blocked') d.status='blocked';
+  else if(sevMap[type]==='risk' && d.status==='open') d.status='risk';
+  else if(type==='Road cleared / reopened') d.status='open';
+
+  renderAlerts(); renderStats(); renderEdges(); renderNodes(); renderVehicleDots();
+
+  document.getElementById('reportDesc').value='';
+  document.getElementById('gpsText').textContent='Not captured'; gpsSet=false;
+  photoAttached=false; photoMock.classList.remove('attached'); photoMock.textContent='Tap to attach a photo (mock)';
+});
+
+/* ============================ SIMULATION LOOP ============================ */
+function tickVehicles(){
+  vehicles.forEach(v=>{
+    if(v.status==='halted') return;
+    v.progress += Math.random()*4;
+    if(v.progress >= 100){ v.progress = 0; }
+  });
+  renderVehicleTable();
+  renderVehicleDots();
+}
+
+setInterval(tickVehicles, 2200);
+
+/* ============================ INITIAL RENDER ============================ */
+initMap(); setupLocateButton(); renderAlerts(); renderStats(); renderVehicleTable(); renderReportsLog();
+</script>
+</body>
+</html>
