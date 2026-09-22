@@ -411,7 +411,7 @@
         </div>
 
         <div class="scope-note">
-          <b>Prototype scope note:</b> this planner picks between pre-mapped route options and flags a route as risky using a simple rule (simulated rainfall above a threshold on a landslide-prone stretch). A production system would use a real routing engine (e.g. OSRM/Google Maps APIs) with a live "avoid this segment" constraint driven by the ML risk model.
+          <b>Prototype scope note:</b> this planner picks between pre-mapped route options and flags a route as risky using a simple rule (simulated rainfall above a threshold on a landslide-prone stretch). Distances shown are estimated from straight-line distance with a winding factor, not real road distance. A production system would use a real routing engine (e.g. OSRM/Google Maps APIs) with a live "avoid this segment" constraint driven by the ML risk model, and would report actual road distance.
         </div>
       </div>
 
@@ -423,7 +423,7 @@
         <div class="panel">
           <table>
             <thead>
-              <tr><th>Vehicle ID</th><th>Carrying</th><th>From → To</th><th>Journey progress</th><th>Time left</th><th>Status</th></tr>
+              <tr><th>Vehicle ID</th><th>Carrying</th><th>Vehicle type</th><th>From → To</th><th>Journey progress</th><th>Time left</th><th>Status</th></tr>
             </thead>
             <tbody id="vehicleTable"></tbody>
           </table>
@@ -586,11 +586,11 @@ const edges = [
 ];
 
 let vehicles = [
-  { id:'NL-01', cargo:'Medicines', from:'gwh', to:'shl', progress:35, status:'delayed', eta:'2h 40m' },
-  { id:'NL-02', cargo:'Food supplies', from:'gwh', to:'koh', progress:62, status:'ontime', eta:'1h 05m' },
-  { id:'NL-03', cargo:'Construction material', from:'aiz', to:'imp', progress:18, status:'ontime', eta:'3h 20m' },
-  { id:'NL-04', cargo:'Agricultural produce', from:'gtk', to:'gwh', progress:80, status:'halted', eta:'—' },
-  { id:'NL-05', cargo:'Medicines', from:'koh', to:'aiz', progress:47, status:'ontime', eta:'2h 10m' },
+  { id:'NL-01', cargo:'Medicines', type:'2-wheeler', from:'gwh', to:'shl', progress:35, status:'delayed', eta:'2h 40m' },
+  { id:'NL-02', cargo:'Food supplies', type:'4-wheeler', from:'gwh', to:'koh', progress:62, status:'ontime', eta:'1h 05m' },
+  { id:'NL-03', cargo:'Construction material', type:'4-wheeler', from:'aiz', to:'imp', progress:18, status:'ontime', eta:'3h 20m' },
+  { id:'NL-04', cargo:'Agricultural produce', type:'4-wheeler', from:'gtk', to:'gwh', progress:80, status:'halted', eta:'—' },
+  { id:'NL-05', cargo:'Medicines', type:'2-wheeler', from:'koh', to:'aiz', progress:47, status:'ontime', eta:'2h 10m' },
 ];
 
 let alerts = [
@@ -854,12 +854,28 @@ function renderVehicleDots(){
       lat = from.lat + (to.lat-from.lat)*t;
       lng = from.lng + (to.lng-from.lng)*t;
     }
+    const vIcon = v.type==='2-wheeler' ? '🏍️' : '🚚';
     const icon = L.divIcon({
       className:'',
-      html:`<div style="width:10px;height:10px;background:var(--text);transform:rotate(45deg);border:2px solid var(--bg);"></div>`,
-      iconSize:[10,10], iconAnchor:[5,5],
+      html:`
+        <div style="position:relative; display:flex; flex-direction:column; align-items:center; transform:translateY(-4px);">
+          <div style="font-size:9.5px; font-weight:600; background:var(--panel); color:var(--text);
+                      border:1px solid var(--line); padding:1px 6px; border-radius:8px; margin-bottom:2px;
+                      white-space:nowrap; box-shadow:0 1px 3px rgba(0,0,0,0.15);">${vIcon} ${v.cargo} · ${v.id}</div>
+          <div style="width:10px;height:10px;background:var(--text);transform:rotate(45deg);border:2px solid var(--bg);"></div>
+        </div>`,
+      iconSize:[0,0], iconAnchor:[0,0],
     });
-    vehicleMarkerLayer[v.id] = L.marker([lat,lng], { icon, interactive:false }).addTo(leafletMap);
+    vehicleMarkerLayer[v.id] = L.marker([lat,lng], { icon, interactive:true, zIndexOffset:500 })
+      .bindPopup(`
+        <div style="font-family:'IBM Plex Sans',sans-serif; font-size:12.5px; color:var(--text); min-width:150px;">
+          <div style="font-weight:700; margin-bottom:6px;">${v.id}</div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:4px; color:var(--text-dim);"><span>Carrying</span><b style="color:var(--text);">${v.cargo}</b></div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:4px; color:var(--text-dim);"><span>Vehicle</span><b style="color:var(--text);">${vIcon} ${v.type}</b></div>
+          <div style="display:flex; justify-content:space-between; color:var(--text-dim);"><span>Route</span><b style="color:var(--text);">${from.name} → ${to.name}</b></div>
+        </div>
+      `)
+      .addTo(leafletMap);
   });
 }
 
@@ -948,16 +964,23 @@ document.getElementById('findRouteBtn').addEventListener('click', ()=>{
   const result = document.getElementById('routeResult');
   const risky = from.status!=='open' || to.status!=='open';
 
+  // Approximate real road distance from straight-line distance using a
+  // winding factor (real roads through hill terrain are rarely straight).
+  const WINDING_FACTOR = 1.3;
+  const roadKm = (a,b) => Math.round(distanceKm(a,b) * WINDING_FACTOR);
+  const primaryKm = roadKm(from, to);
+
   document.getElementById('primaryPath').textContent = `${from.name} → ${to.name} (direct corridor)`;
   document.getElementById('primaryMeta').textContent = risky
-    ? `Flagged high-risk — rainfall ${Math.max(from.rainfall,to.rainfall)}mm near ${to.status!=='open'?to.name:from.name}. Estimated delay 2–4 hrs.`
-    : `Clear — estimated travel time 3h 10m, no active risk factors.`;
+    ? `Flagged high-risk — rainfall ${Math.max(from.rainfall,to.rainfall)}mm near ${to.status!=='open'?to.name:from.name}. Estimated delay 2–4 hrs. ~${primaryKm} km.`
+    : `Clear — estimated travel time 3h 10m, ~${primaryKm} km, no active risk factors.`;
 
   const altRow = document.getElementById('altRow');
   if(risky){
     const via = findAlternateVia(from, to);
+    const altKm = roadKm(from, via) + roadKm(via, to);
     document.getElementById('altPath').textContent = `${from.name} → ${via.name} → ${to.name} (alternate)`;
-    document.getElementById('altMeta').textContent = `Adds ~45 min but avoids the flagged stretch. Suggested by risk-avoidance rule.`;
+    document.getElementById('altMeta').textContent = `Adds ~45 min but avoids the flagged stretch. ~${altKm} km total (${altKm - primaryKm >= 0 ? '+' : ''}${altKm - primaryKm} km vs. direct). Suggested by risk-avoidance rule.`;
     altRow.style.display = 'flex';
   } else {
     altRow.style.display = 'none';
@@ -973,9 +996,11 @@ function renderVehicleTable(){
   vehicles.forEach(v=>{
     const from = districts.find(d=>d.id===v.from), to = districts.find(d=>d.id===v.to);
     const tr = document.createElement('tr');
+    const vIcon = v.type==='2-wheeler' ? '🏍️' : '🚚';
     tr.innerHTML = `
       <td>${v.id}</td>
       <td>${v.cargo}</td>
+      <td>${vIcon} ${v.type}</td>
       <td>${from.name} → ${to.name}</td>
       <td>
         <div style="display:flex;align-items:center;gap:8px;">
